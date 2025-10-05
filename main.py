@@ -146,6 +146,101 @@ async def verify(interaction: discord.Interaction, role: discord.Role, descripti
     await interaction.response.send_message(embed=embed, view=view)
     bot.add_view(view)
 
+class RecordModal(discord.ui.Modal, title="🌟 実績記入"):
+    product = discord.ui.TextInput(label="商品名", placeholder="例)○○○○")
+    rating = discord.ui.TextInput(label="評価", placeholder="1~5の中で選んでください。", required=True)
+    comment = discord.ui.TextInput(label="感想", placeholder="例)迅速な対応ありがとうございました。", style=discord.TextStyle.paragraph, required=True)
+    quantity = discord.ui.TextInput(label="個数", placeholder="購入した個数", required=True)
+
+    def __init__(self, record_channel: discord.TextChannel):
+        super().__init__()
+        self.record_channel = record_channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            rating = int(self.rating.value)
+            quantity = int(self.quantity.value)
+            
+            if not (1 <= rating <= 5):
+                raise ValueError("評価は1〜5の範囲で入力してください")
+            if quantity < 1 or quantity > 999999:
+                raise ValueError("個数は1以上または999999以下で入力してください")
+        except ValueError as e:
+            await interaction.response.send_message(f"**{e}**", ephemeral=True)
+            return
+
+        stars = "★" * rating + "☆" * (5 - rating)
+
+        embed = discord.Embed(title="🌟 実績報告", color=discord.Color.blue())
+        embed.add_field(name="👤【記入者】", value=interaction.user.mention, inline=False)
+        embed.add_field(name="💎【買ったもの】", value=f'{self.product.value}', inline=False)
+        embed.add_field(name="⭐【評価】", value=f"__{stars}__", inline=False)  # 数字を削除し星のみ表示
+        embed.add_field(name="💬【感想】", value=f'{self.comment.value}', inline=False)
+        embed.add_field(name="🛍️【個数】", value=f'{quantity}個', inline=False)
+        embed.set_footer(text=f"Made by @takosu_23532")
+
+        embed.set_thumbnail(url=interaction.user.avatar.url)
+
+        await self.record_channel.send(embed=embed)
+        await interaction.response.send_message(f"**実績記入ありがとうございます！またのご利用をお待ちしております。**", ephemeral=True)
+
+class RecordView(discord.ui.View):
+    def __init__(self, record_channel: discord.TextChannel):
+        super().__init__()
+        self.record_channel = record_channel
+
+    @discord.ui.button(label="📝 実績を記入", style=discord.ButtonStyle.green)
+    async def record_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RecordModal(self.record_channel))
+
+@bot.tree.command(name="trackrecord", description="実績記入パネルを設置します。")
+@app_commands.describe(channel="実績を記録するチャンネル")
+async def record(interaction: discord.Interaction, channel: discord.TextChannel):
+    if interaction.user.guild_permissions.administrator:
+        embed = discord.Embed(
+            title="実績記入パネル",
+            description="下のボタンを押して実績を記入してください。",
+            color=discord.Color.blue()
+        )
+        view = RecordView(channel)
+
+        await interaction.channel.send(embed=embed, view=view)
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"**実績記入パネルを {interaction.channel.mention} に設置しました！**", ephemeral=True)
+    else:
+        if not interaction.response.is_done():
+            await interaction.response.send_message("このコマンドは管理者のみ実行できます。管理者権限を持っている方にお問い合わせしてください。", ephemeral=True)
+
+@bot.tree.command(name="id", description="指定したユーザーIDの情報を表示します")
+@app_commands.describe(userid="ユーザーのIDを入力してください")
+async def id_command(interaction: discord.Interaction, userid: str):
+    # IDが数字でないとき
+    if not userid.isdigit():
+        return await interaction.response.send_message("❌ 有効なユーザーIDを入力してください。", ephemeral=True)
+
+    try:
+        # fetch_userでユーザー情報取得（Botのキャッシュ外でもOK）
+        user = await bot.fetch_user(int(userid))
+    except discord.NotFound:
+        return await interaction.response.send_message("⚠️ ユーザーが見つかりませんでした。", ephemeral=True)
+    except Exception as e:
+        return await interaction.response.send_message(f"❌ エラー: {e}", ephemeral=True)
+
+    # Embed作成
+    embed = discord.Embed(
+        title="👤 ユーザー情報",
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url=user.display_avatar.url)  # アイコン画像
+    embed.add_field(name="🪪 ユーザーID", value=f"`{user.id}`", inline=False)
+    embed.add_field(name="📛 Username", value=f"{user.name}", inline=True)
+    embed.add_field(name="📌 Display Name", value=f"{user.display_name}", inline=True)
+    embed.add_field(name="📅 アカウント作成日", value=user.created_at.strftime("%Y/%m/%d %H:%M:%S"), inline=False)
+    embed.set_footer(text="Made by @takosu_23532")
+
+    await interaction.response.send_message(embed=embed)
+
 @tasks.loop(seconds=15)
 async def update_status():
     cpu = psutil.cpu_percent()
